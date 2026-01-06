@@ -1,1855 +1,501 @@
-/*******************************************************
- * Learn Language Education Academy
- * Unpaid Registration Reminder (SAFE ADD-ON)
- *
- * ✔ Does NOT touch your existing functions.
- * ✔ Only scans the "students" sheet and sends reminders to:
- *    - Paid == 0
- *    - Email present
- * ✔ Tracks reminders using:
- *    - PaymentReminderLastSent
- *    - PaymentReminderCount
- *******************************************************/
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tillskin &amp; Beauty | Makeup &amp; Skincare Shop in Ghana</title>
 
-/***********************
- * CONFIG
- ***********************/
-const LLA_STUDENT_SPREADSHEET_ID = "12NXf5FeVHr7JJT47mRHh7Jp-TC1yhPS7ZG6nzZVTt1U";
-const LLA_STUDENT_SHEET_NAME = "students";
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta
+    name="description"
+    content="Tillskin &amp; Beauty is a makeup and beauty shop offering makeup products, skincare essentials and professional glam services. Shop our looks on Instagram or book a session via WhatsApp."
+  />
 
-// Org identity (prefixed so we don't clash with your other code)
-const LLA_ORG_NAME = "Learn Language Education Academy";
-const LLA_ORG_EMAIL = "learngermanghana@gmail.com";
-const LLA_ORG_PHONE = "233205706589";
-const LLA_ORG_WEBSITE_1 = "www.learngermanghana.com";
-const LLA_ORG_WEBSITE_2 = "www.falowen.app";
-const LLA_ORG_DIGITAL_ADDRESS = "Kwamisa street 580-8049";
-const LLA_ORG_BUSINESS_REG_NO = "BN173410224";
+  <meta name="author" content="Tillskin &amp; Beauty" />
+  <meta
+    name="keywords"
+    content="Tillskin and Beauty, makeup shop, beauty shop, skincare, bridal makeup, soft glam, Ghana"
+  />
 
-// Play Store link (for signature)
-const LLA_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.falowen.app";
-const LLA_PLAYSTORE_TEXT = "You can download Falowen on Play Store: " + LLA_PLAYSTORE_URL;
+  <!-- Social preview — update URL after deployment -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Tillskin &amp; Beauty | Makeup &amp; Skincare Shop" />
+  <meta
+    property="og:description"
+    content="Discover soft glam, bridal looks, makeup products and skincare essentials at Tillskin &amp; Beauty."
+  />
+  <meta property="og:url" content="https://your-username.github.io/tillskinbeauty/" />
+  <meta property="og:image" content="https://your-username.github.io/tillskinbeauty/preview.jpg" />
 
-// Helper columns for reminders
-const LLA_COL_REMINDER_LAST_SENT = "PaymentReminderLastSent";
-const LLA_COL_REMINDER_COUNT = "PaymentReminderCount";
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Tillskin &amp; Beauty | Makeup &amp; Skincare Shop" />
+  <meta
+    name="twitter:description"
+    content="Soft glam, bridal makeup and beauty products. See our looks on Instagram or book on WhatsApp."
+  />
+  <meta name="twitter:image" content="https://your-username.github.io/tillskinbeauty/preview.jpg" />
 
-// Behaviour
-const LLA_REMINDER_MAX_DAYS = 14;   // window where we warn them
-const LLA_REMINDER_MIN_GAP = 2;     // days between reminder emails
-const LLA_REMINDER_MAX_COUNT = 5;   // safety cap (avoid spam)
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+    }
 
-/***********************
- * PUBLIC ENTRY FUNCTION
- * (Attach a time-based trigger to this)
- ***********************/
-function LLA_scanUnpaidAndSendReminders() {
-  const sh = LLA_getStudentsSheet_();
+    body {
+      background: #fdf7fb;
+      color: #2b2130;
+      line-height: 1.6;
+    }
 
-  // Read headers once
-  const lr = sh.getLastRow();
-  if (lr < 2) return; // no data
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
 
-  const lc = sh.getLastColumn();
-  const headers = sh.getRange(1, 1, 1, lc).getValues()[0].map(h => String(h).trim());
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(253, 247, 251, 0.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #f0d7ea;
+    }
 
-  // Ensure reminder columns exist (they'll be added at the far right)
-  LLA_ensureReminderColumns_(sh, headers);
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 1.25rem;
+    }
 
-  // Rebuild index map after possible new columns
-  const idx = LLA_indexMap_(headers);
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.9rem 0;
+    }
 
-  // Required columns check (based on your sheet)
-  const required = ["Name", "Email", "Paid", "ContractStart", "EnrollDate"];
-  const missing = required.filter(c => idx[c] === undefined);
-  if (missing.length) {
-    throw new Error("Missing required columns in 'students' sheet: " + missing.join(", "));
-  }
+    .logo {
+      font-weight: 700;
+      font-size: 1.25rem;
+    }
 
-  const now = new Date();
-  const rows = sh.getRange(2, 1, lr - 1, sh.getLastColumn()).getValues();
+    .logo span {
+      color: #d26aa5;
+    }
 
-  for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2;  // sheet row
-    const row = rows[i];
+    nav ul {
+      display: flex;
+      gap: 1rem;
+      list-style: none;
+      font-size: 0.95rem;
+    }
 
-    const name = LLA_safe_(row[idx["Name"]]);
-    const email = LLA_safe_(row[idx["Email"]]);
-    if (!name || !email) continue;
+    nav a {
+      padding: 0.25rem 0.5rem;
+      border-radius: 999px;
+    }
 
-    const paid = LLA_num_(row[idx["Paid"]]);
-    if (paid > 0) continue; // already paid => skip
+    nav a:hover {
+      background: #f2d6eb;
+    }
 
-    // Registration date = ContractStart or fallback to EnrollDate
-    const csRaw = row[idx["ContractStart"]];
-    const edRaw = row[idx["EnrollDate"]];
-    const regDate = LLA_toDate_(csRaw) || LLA_toDate_(edRaw);
-    if (!regDate) continue; // no date => skip
+    .social-links {
+      display: flex;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+    }
 
-    const daysSinceReg = LLA_daysBetween_(regDate, now);
+    main {
+      padding-bottom: 3rem;
+    }
 
-    // Only care about 0 <= days <= LLA_REMINDER_MAX_DAYS
-    if (daysSinceReg < 0) continue;      // future, skip
-    if (daysSinceReg > LLA_REMINDER_MAX_DAYS) continue; // outside window
+    section {
+      padding: 3rem 0;
+    }
 
-    // Get reminder metadata (indices exist because ensureReminderColumns_ added them)
-    const lastSentIdx = idx[LLA_COL_REMINDER_LAST_SENT];
-    const countIdx    = idx[LLA_COL_REMINDER_COUNT];
+    #home {
+      padding-top: 3rem;
+    }
 
-    const lastSentRaw = row[lastSentIdx];
-    const lastSent = LLA_toDate_(lastSentRaw);
-    const reminderCount = LLA_num_(row[countIdx]);
+    .hero {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 2rem;
+      align-items: center;
+    }
 
-    if (reminderCount >= LLA_REMINDER_MAX_COUNT) continue;
+    .hero-title {
+      font-size: 2.1rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
 
-    let daysSinceLast = null;
-    if (lastSent) {
-      daysSinceLast = LLA_daysBetween_(lastSent, now);
-      if (daysSinceLast < LLA_REMINDER_MIN_GAP) {
-        // too soon to send again
-        continue;
+    .hero-highlight {
+      color: #d26aa5;
+    }
+
+    .hero-text {
+      max-width: 32rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .btn {
+      border-radius: 999px;
+      padding: 0.7rem 1.4rem;
+      border: none;
+      cursor: pointer;
+      font-size: 0.95rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+
+    .btn-primary {
+      background: #d26aa5;
+      color: #fff;
+      box-shadow: 0 12px 25px rgba(210, 106, 165, 0.35);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(210, 106, 165, 0.4);
+    }
+
+    .btn-outline {
+      background: #fdf7fb;
+      border: 1px solid #e3c1d9;
+    }
+
+    .btn-outline:hover {
+      background: #f2d6eb;
+    }
+
+    .badge {
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      background: #f2d6eb;
+      font-size: 0.75rem;
+    }
+
+    .hero-card {
+      background: radial-gradient(circle at top left, #ffe4f0, #fdf7fb);
+      padding: 1.5rem;
+      border-radius: 1.5rem;
+    }
+
+    .hero-image {
+      width: 100%;
+      border-radius: 1.25rem;
+      display: block;
+      object-fit: cover;
+    }
+
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-subtitle {
+      color: #6c5a73;
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: #fff;
+      padding: 1.25rem;
+      border-radius: 1rem;
+      box-shadow: 0 8px 24px rgba(177, 144, 166, 0.12);
+      font-size: 0.9rem;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+
+    .gallery-item {
+      background: #fff;
+      padding: 0.6rem;
+      border-radius: 1rem;
+    }
+
+    .gallery-item img {
+      width: 100%;
+      display: block;
+      border-radius: 0.9rem;
+      object-fit: cover;
+    }
+
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 1.5rem;
+    }
+
+    footer {
+      border-top: 1px solid #f0d7ea;
+      text-align: center;
+      padding: 1.25rem 0 1.75rem;
+      color: #846a8a;
+      font-size: 0.8rem;
+    }
+
+    @media (max-width: 840px) {
+      .hero,
+      .contact-grid,
+      .grid-3,
+      .gallery-grid {
+        grid-template-columns: 1fr;
+      }
+
+      nav ul {
+        display: none;
+      }
+
+      #home {
+        padding-top: 2rem;
       }
     }
-
-    // At this point, we are within 14 days, unpaid, and either no reminder
-    // or enough gap since last reminder => send email
-    try {
-      LLA_sendUnpaidReminderEmail_(name, email, regDate, daysSinceReg);
-      // Write back metadata
-      sh.getRange(rowNum, lastSentIdx + 1).setValue(now);
-      sh.getRange(rowNum, countIdx + 1).setValue(reminderCount + 1);
-    } catch (err) {
-      Logger.log("Error sending reminder to " + email + ": " + err);
-    }
-  }
-}
-
-/***********************
- * EMAIL SENDING
- ***********************/
-function LLA_sendUnpaidReminderEmail_(name, email, regDate, daysSinceReg) {
-  const regDateText = Utilities.formatDate(regDate, Session.getScriptTimeZone(), "MMMM d, yyyy");
-
-  const subject = "Payment Reminder – Complete Your Registration";
-
-  const body =
-"Hello " + name + ",\n\n" +
-"Thank you for registering for our German classes at " + LLA_ORG_NAME + ".\n" +
-"Our records show that your registration was created on " + regDateText + ", " +
-"but we have not yet received any payment for your course.\n\n" +
-"If payment is not made within 14 days from your registration, your registration and personal data may be permanently deleted " +
-"in line with our data-retention policy.\n\n" +
-"If you still wish to join the class, please complete your payment as soon as possible. " +
-"If you have already paid or need help with payment, kindly reply to this email or contact us on WhatsApp.\n\n" +
-"Days since registration: " + daysSinceReg + "\n\n" +
-LLA_emailSignature_();
-
-  GmailApp.sendEmail(email, subject, body, {
-    name: LLA_ORG_NAME,
-    replyTo: LLA_ORG_EMAIL
-  });
-}
-
-/***********************
- * SHEET / HEADER HELPERS
- ***********************/
-function LLA_getStudentsSheet_() {
-  const ss = SpreadsheetApp.openById(LLA_STUDENT_SPREADSHEET_ID);
-  const sh = ss.getSheetByName(LLA_STUDENT_SHEET_NAME);
-  if (!sh) throw new Error("Sheet tab not found: " + LLA_STUDENT_SHEET_NAME);
-  return sh;
-}
-
-function LLA_indexMap_(headers) {
-  const map = {};
-  headers.forEach((h, i) => {
-    map[String(h).trim()] = i;
-  });
-  return map;
-}
-
-function LLA_ensureReminderColumns_(sh, headers) {
-  let lastCol = sh.getLastColumn();
-
-  function ensure(colName, defaultValue) {
-    const existingIndex = headers.indexOf(colName);
-    if (existingIndex === -1) {
-      lastCol += 1;
-      sh.getRange(1, lastCol).setValue(colName).setFontWeight("bold");
-      const lr = sh.getLastRow();
-      if (defaultValue !== undefined && lr >= 2) {
-        sh.getRange(2, lastCol, lr - 1, 1).setValue(defaultValue);
-      }
-      headers.push(colName); // keep headers array in sync
-    }
-  }
-
-  ensure(LLA_COL_REMINDER_LAST_SENT, "");
-  ensure(LLA_COL_REMINDER_COUNT, "0");
-}
-
-/***********************
- * EMAIL SIGNATURE
- ***********************/
-function LLA_emailSignature_() {
-  return (
-    "\n" +
-    LLA_PLAYSTORE_TEXT + "\n\n" +
-    "Regards,\n" +
-    LLA_ORG_NAME + "\n" +
-    "Phone/WhatsApp: " + LLA_ORG_PHONE + "\n" +
-    "Email: " + LLA_ORG_EMAIL + "\n" +
-    "Websites: " + LLA_ORG_WEBSITE_1 + ", " + LLA_ORG_WEBSITE_2 + "\n" +
-    "Digital Address: " + LLA_ORG_DIGITAL_ADDRESS + "\n" +
-    "Business Reg No: " + LLA_ORG_BUSINESS_REG_NO
-  );
-}
-
-/***********************
- * GENERIC HELPERS
- ***********************/
-function LLA_safe_(v) {
-  if (v === null || v === undefined) return "";
-  return String(v).trim();
-}
-
-function LLA_num_(v) {
-  const n = Number(String(v).replace(/,/g, "").trim());
-  return isNaN(n) ? 0 : n;
-}
-
-function LLA_toDate_(v) {
-  if (v instanceof Date) return v;
-  const t = LLA_safe_(v);
-  if (!t) return null;
-  const d = new Date(t);
-  return String(d) === "Invalid Date" ? null : d;
-}
-
-function LLA_daysBetween_(d1, d2) {
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const t1 = new Date(d1.getFullYear(), d1.getMonth(), d1.getDate()).getTime();
-  const t2 = new Date(d2.getFullYear(), d2.getMonth(), d2.getDate()).getTime();
-  return Math.round((t2 - t1) / msPerDay);
-}
-
-/*******************************************************
- * Learn Language Education Academy - Auto Docs Sender
- * FULL UPDATED CODE (Working, No Truncation)
- *
- * ✅ RULE: When Paid == 0, DO NOT send Enrollment Letter / Enrollment Pack.
- * ✅ Enrollment triggers when Paid becomes > 0 (auto scan + onEdit + bulk/manual).
- * ✅ First Receipt on enrollment: only if Paid>0 AND LastPaidRecorded==0 (prevents duplicate receipts).
- * ✅ Receipts: auto-send when Paid increases (after enrollment).
- * ✅ Play Store link appended to ALL EMAILS (via emailSignature_()).
- *
- * ✅ Digital Signature: Sabine Michel (no manual signing)
- * ✅ Document "Date" on Enrollment/Agreement/Receipt uses ContractStart date
- * ✅ Sample document is ONE TEMPLATE to ADMIN only (not per student, not bulk)
- * ✅ EMAIL QUEUE tab to send docs to one student: Lookup + YES/NO (Enrollment/Agreement/Receipt/SampleToAdmin)
- * ✅ FIX: Email-queue receipts can resend LAST receipt as COPY (even if Paid didn’t increase)
- *******************************************************/
-
-/***********************
- * CONFIG
- ***********************/
-
-// Students source sheet
-const SPREADSHEET_ID = "12NXf5FeVHr7JJT47mRHh7Jp-TC1yhPS7ZG6nzZVTt1U";
-const SHEET_NAME = "students";
-
-// Log + Email queue spreadsheet
-const LOG_SPREADSHEET_ID = "1hC087Dg23DKokJTl6_gKIDdjthzID0-aDhvEGl9peX0";
-const LOG_SHEET_NAME = "data";
-const EMAIL_QUEUE_SHEET_NAME = "email";
-
-// Assets (RAW github URLs)
-const LOGO_URL = "https://raw.githubusercontent.com/learngermanghana/falowenexamtrainer/main/web/public/falo.png";
-const WATERMARK_URL = "https://raw.githubusercontent.com/learngermanghana/falowenexamtrainer/main/web/public/watermark.png";
-
-// Organization identity
-const ORG_NAME = "Learn Language Education Academy";
-const ORG_PHONE = "233205706589";
-const ORG_EMAIL = "learngermanghana@gmail.com";
-const ORG_WEBSITE_1 = "www.learngermanghana.com";
-const ORG_WEBSITE_2 = "www.falowen.app";
-const ORG_DIGITAL_ADDRESS = "Kwamisa street 580-8049";
-const ORG_BUSINESS_REG_NO = "BN173410224";
-
-// ✅ Play Store
-const PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.falowen.app";
-const PLAYSTORE_TEXT = `You can download Falowen on Play Store: ${PLAYSTORE_URL}`;
-
-// Email identity
-const FROM_NAME = ORG_NAME;
-const REPLY_TO = ORG_EMAIL;
-const ADMIN_CC = ""; // optional
-
-// Digital signature (PDF)
-const SIGNATORY_NAME = "Sabine Michel";
-const SIGNATORY_TITLE = "Administrative Officer"; // change title if needed
-
-// Helper columns (auto-created if missing)
-const COL_ENROLL_SENT = "EnrollmentSent";   // YES/NO
-const COL_LAST_PAID = "LastPaidRecorded";   // number
-
-// Status behavior (existing column in sheet)
-const COL_STATUS = "Status";
-const STATUS_ENROLLED = "Enrolled";
-const STATUS_PAID = "Paid";
-
-// Retention notice (EMAIL + PDF)
-const RETENTION_NOTICE_TEXT =
-`IMPORTANT NOTICE:
-Please save all attached documents in a safe place.
-After your contract ends, student records and related data may be removed from our system.`;
-
-/***********************
- * EMAIL QUEUE HEADERS (tab: email in LOG_SPREADSHEET_ID)
- * Row 1 must contain EXACTLY:
- * Lookup | SendTo | Enrollment | Agreement | Receipt | SampleToAdmin | Status | ProcessedAt | Result
- ***********************/
-const Q_LOOKUP = "Lookup";
-const Q_SENDTO = "SendTo";
-const Q_ENROLL = "Enrollment";
-const Q_AGREEMENT = "Agreement";
-const Q_RECEIPT = "Receipt";
-const Q_SAMPLE_ADMIN = "SampleToAdmin";
-const Q_STATUS = "Status";
-const Q_PROCESSED_AT = "ProcessedAt";
-const Q_RESULT = "Result";
-
-const Q_SENT = "SENT";
-const Q_ERROR = "ERROR";
-
-/***********************
- * MENU
- ***********************/
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu("Student Docs")
-    // NEW: button to fire unpaid reminders manually
-    .addItem("Send unpaid payment reminders", "LLA_scanUnpaidAndSendReminders")
-    .addSeparator()
-    .addItem("Setup Students Triggers (Auto receipts + scan)", "setup")
-    .addItem("Setup Email Queue Triggers (email tab)", "setupEmailQueue")
-    .addSeparator()
-    .addItem("Bulk: Send ALL pending enrollments", "bulkSendEnrollments")
-    .addItem("Bulk: Send ALL pending receipts", "bulkSendReceipts")
-    .addSeparator()
-    .addItem("Send Enrollment Pack (selected student row)", "sendEnrollmentSelectedRow")
-    .addItem("Send Receipt (selected student row)", "sendReceiptSelectedRow")
-    .addSeparator()
-    .addItem("Send Enrollment Pack by Email / StudentCode / UID", "sendEnrollmentByPrompt")
-    .addItem("Send Receipt by Email / StudentCode / UID", "sendReceiptByPrompt")
-    .addSeparator()
-    .addItem("Send ONE Sample Template to ADMIN", "sendOneSampleTemplateToAdmin")
-    .addSeparator()
-    .addItem("Preview PDFs to Drive (see how they look)", "previewDocsToDrive")
-    .addToUi();
-}
-
-/***********************
- * TRIGGER SETUP (STUDENTS)
- ***********************/
-function setup() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) throw new Error(`Sheet tab not found: ${SHEET_NAME}`);
-
-  ensureStudentHelperColumns_(sh);
-
-  // Remove existing triggers for these handlers (only)
-  ScriptApp.getProjectTriggers().forEach(t => {
-    const h = t.getHandlerFunction();
-    if (["handleEdit", "scanAndSend"].includes(h)) ScriptApp.deleteTrigger(t);
-  });
-
-  ScriptApp.newTrigger("handleEdit")
-    .forSpreadsheet(ss)
-    .onEdit()
-    .create();
-
-  ScriptApp.newTrigger("scanAndSend")
-    .timeBased()
-    .everyMinutes(5)
-    .create();
-
-  SpreadsheetApp.getUi().alert("Students triggers installed ✅");
-}
-
-/***********************
- * TRIGGER SETUP (EMAIL QUEUE)
- ***********************/
-function setupEmailQueue() {
-  const logSS = SpreadsheetApp.openById(LOG_SPREADSHEET_ID);
-
-  ScriptApp.getProjectTriggers().forEach(t => {
-    const h = t.getHandlerFunction();
-    if (["handleEmailQueueEdit", "scanEmailQueue"].includes(h)) ScriptApp.deleteTrigger(t);
-  });
-
-  ScriptApp.newTrigger("handleEmailQueueEdit")
-    .forSpreadsheet(logSS)
-    .onEdit()
-    .create();
-
-  ScriptApp.newTrigger("scanEmailQueue")
-    .timeBased()
-    .everyMinutes(5)
-    .create();
-
-  SpreadsheetApp.getUi().alert("Email queue triggers installed ✅");
-}
-
-/***********************
- * AUTO SCAN (STUDENTS)
- * - send enrollment ONLY if Paid > 0 and not sent yet
- * - send receipt if Paid increased (after enrollment was sent)
- ***********************/
-function scanAndSend() {
-  const sh = getStudentsSheet_();
-  ensureStudentHelperColumns_(sh);
-
-  const { headers, rows } = getSheetData_(sh);
-  if (!headers.length) return;
-
-  const idx = indexMap_(headers);
-  validateStudentsColumns_(idx);
-
-  for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2;
-    const row = rows[i];
-
-    const name = safe_(row[idx["Name"]]);
-    const email = safe_(row[idx["Email"]]);
-    if (!name || !email) continue;
-
-    const key = getRowKey_(row, idx, rowNum);
-
-    const paidNow = num_(row[idx["Paid"]]);
-    const enrollSent = safe_(row[idx[COL_ENROLL_SENT]]).toLowerCase() === "yes";
-
-    // ✅ Enrollment ONLY when Paid > 0
-    if (!enrollSent) {
-      if (paidNow <= 0) continue;
-
-      sendEnrollmentPacketToStudent_(row, idx, key, rowNum);
-
-      sh.getRange(rowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-      updateStatus_(sh, idx, rowNum, STATUS_ENROLLED);
-
-      // sync last paid after enrollment
-      sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paidNow);
-
-      const balance = num_(row[idx["Balance"]]);
-      if (balance === 0) updateStatus_(sh, idx, rowNum, STATUS_PAID);
-
-      continue;
-    }
-
-    // Receipt on Paid increase (only after enrollment sent)
-    const paid = paidNow;
-    const lastPaid = num_(row[idx[COL_LAST_PAID]]);
-    if (paid > lastPaid) {
-      const delta = paid - lastPaid;
-      sendReceiptToStudent_(row, idx, key, delta, paid, rowNum);
-
-      sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-      const balance = num_(row[idx["Balance"]]);
-      if (balance === 0) updateStatus_(sh, idx, rowNum, STATUS_PAID);
-    }
-  }
-}
-
-/***********************
- * INSTANT RECEIPT / FIRST ENROLLMENT ON EDIT (Paid column)
- ***********************/
-function handleEdit(e) {
-  try {
-    if (!e || !e.range) return;
-
-    const sh = e.range.getSheet();
-    if (sh.getName() !== SHEET_NAME) return;
-
-    ensureStudentHelperColumns_(sh);
-
-    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
-    const idx = indexMap_(headers);
-    validateStudentsColumns_(idx);
-
-    const editedRow = e.range.getRow();
-    if (editedRow === 1) return;
-
-    const editedColName = headers[e.range.getColumn() - 1];
-    if (editedColName !== "Paid") return;
-
-    const row = sh.getRange(editedRow, 1, 1, sh.getLastColumn()).getValues()[0];
-    const key = getRowKey_(row, idx, editedRow);
-
-    const paid = num_(row[idx["Paid"]]);
-    const lastPaid = num_(row[idx[COL_LAST_PAID]]);
-    const enrollSent = safe_(row[idx[COL_ENROLL_SENT]]).toLowerCase() === "yes";
-
-    // ✅ If not enrolled yet and Paid > 0, send enrollment pack (not a standalone receipt)
-    if (!enrollSent) {
-      if (paid > 0) {
-        sendEnrollmentPacketToStudent_(row, idx, key, editedRow);
-
-        sh.getRange(editedRow, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-        updateStatus_(sh, idx, editedRow, STATUS_ENROLLED);
-
-        sh.getRange(editedRow, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-        const balance = num_(row[idx["Balance"]]);
-        if (balance === 0) updateStatus_(sh, idx, editedRow, STATUS_PAID);
-      }
-      return;
-    }
-
-    // Enrollment already sent: send receipt only on increase
-    if (paid > lastPaid) {
-      const delta = paid - lastPaid;
-      sendReceiptToStudent_(row, idx, key, delta, paid, editedRow);
-      sh.getRange(editedRow, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-      const balance = num_(row[idx["Balance"]]);
-      if (balance === 0) updateStatus_(sh, idx, editedRow, STATUS_PAID);
-    }
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-/***********************
- * BULK SEND (STUDENTS)
- ***********************/
-function bulkSendEnrollments() {
-  const sh = getStudentsSheet_();
-  ensureStudentHelperColumns_(sh);
-
-  const { headers, rows } = getSheetData_(sh);
-  const idx = indexMap_(headers);
-  validateStudentsColumns_(idx);
-
-  let sent = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2;
-    const row = rows[i];
-
-    const name = safe_(row[idx["Name"]]);
-    const email = safe_(row[idx["Email"]]);
-    if (!name || !email) continue;
-
-    const enrollSent = safe_(row[idx[COL_ENROLL_SENT]]).toLowerCase() === "yes";
-    if (enrollSent) continue;
-
-    const paidNow = num_(row[idx["Paid"]]);
-    // ✅ Paid must be > 0 to send enrollment pack
-    if (paidNow <= 0) continue;
-
-    const key = getRowKey_(row, idx, rowNum);
-    sendEnrollmentPacketToStudent_(row, idx, key, rowNum);
-
-    sh.getRange(rowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-    updateStatus_(sh, idx, rowNum, STATUS_ENROLLED);
-
-    sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paidNow);
-
-    const balance = num_(row[idx["Balance"]]);
-    if (balance === 0) updateStatus_(sh, idx, rowNum, STATUS_PAID);
-
-    sent++;
-  }
-
-  SpreadsheetApp.getUi().alert(`Bulk enrollments done ✅ Sent: ${sent}`);
-}
-
-function bulkSendReceipts() {
-  const sh = getStudentsSheet_();
-  ensureStudentHelperColumns_(sh);
-
-  const { headers, rows } = getSheetData_(sh);
-  const idx = indexMap_(headers);
-  validateStudentsColumns_(idx);
-
-  let sent = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2;
-    const row = rows[i];
-
-    const name = safe_(row[idx["Name"]]);
-    const email = safe_(row[idx["Email"]]);
-    if (!name || !email) continue;
-
-    const paid = num_(row[idx["Paid"]]);
-    const lastPaid = num_(row[idx[COL_LAST_PAID]]);
-    const enrollSent = safe_(row[idx[COL_ENROLL_SENT]]).toLowerCase() === "yes";
-
-    // ✅ If not enrolled yet and Paid > 0, send enrollment pack instead of receipt
-    if (!enrollSent) {
-      if (paid > 0) {
-        const key = getRowKey_(row, idx, rowNum);
-        sendEnrollmentPacketToStudent_(row, idx, key, rowNum);
-
-        sh.getRange(rowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-        updateStatus_(sh, idx, rowNum, STATUS_ENROLLED);
-        sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-        const balance = num_(row[idx["Balance"]]);
-        if (balance === 0) updateStatus_(sh, idx, rowNum, STATUS_PAID);
-
-        sent++;
-      }
-      continue;
-    }
-
-    // Normal receipts after enrollment
-    if (paid > lastPaid) {
-      const delta = paid - lastPaid;
-      const key = getRowKey_(row, idx, rowNum);
-
-      sendReceiptToStudent_(row, idx, key, delta, paid, rowNum);
-      sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-      sent++;
-    }
-  }
-
-  SpreadsheetApp.getUi().alert(`Bulk receipts done ✅ Sent: ${sent}`);
-}
-
-/***********************
- * MANUAL SEND (Selected row)
- ***********************/
-function sendEnrollmentSelectedRow() {
-  const sh = getStudentsSheet_();
-  ensureStudentHelperColumns_(sh);
-
-  const rowNum = sh.getActiveRange().getRow();
-  if (rowNum === 1) throw new Error("Select a student row (not header).");
-
-  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
-  const idx = indexMap_(headers);
-  validateStudentsColumns_(idx);
-
-  const row = sh.getRange(rowNum, 1, 1, sh.getLastColumn()).getValues()[0];
-
-  const paidNow = num_(row[idx["Paid"]]);
-  if (paidNow <= 0) {
-    return SpreadsheetApp.getUi().alert("Paid is 0. Enrollment pack will NOT be sent until payment is recorded.");
-  }
-
-  const key = getRowKey_(row, idx, rowNum);
-
-  sendEnrollmentPacketToStudent_(row, idx, key, rowNum);
-
-  sh.getRange(rowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-  updateStatus_(sh, idx, rowNum, STATUS_ENROLLED);
-
-  sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paidNow);
-
-  SpreadsheetApp.getUi().alert("Enrollment pack sent ✅");
-}
-
-function sendReceiptSelectedRow() {
-  const sh = getStudentsSheet_();
-  ensureStudentHelperColumns_(sh);
-
-  const rowNum = sh.getActiveRange().getRow();
-  if (rowNum === 1) throw new Error("Select a student row (not header).");
-
-  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
-  const idx = indexMap_(headers);
-  validateStudentsColumns_(idx);
-
-  const row = sh.getRange(rowNum, 1, 1, sh.getLastColumn()).getValues()[0];
-  const key = getRowKey_(row, idx, rowNum);
-
-  const paid = num_(row[idx["Paid"]]);
-  const enrollSent = safe_(row[idx[COL_ENROLL_SENT]]).toLowerCase() === "yes";
-
-  // ✅ If not enrolled yet and Paid > 0, send enrollment pack
-  if (!enrollSent) {
-    if (paid <= 0) return SpreadsheetApp.getUi().alert("Paid is 0. No receipt/enrollment will be sent.");
-    sendEnrollmentPacketToStudent_(row, idx, key, rowNum);
-
-    sh.getRange(rowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-    updateStatus_(sh, idx, rowNum, STATUS_ENROLLED);
-    sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-    return SpreadsheetApp.getUi().alert("Enrollment pack sent ✅ (first payment detected)");
-  }
-
-  const lastPaid = num_(row[idx[COL_LAST_PAID]]);
-  const delta = Math.max(0, paid - lastPaid);
-  if (delta <= 0) return SpreadsheetApp.getUi().alert("No new payment detected.");
-
-  sendReceiptToStudent_(row, idx, key, delta, paid, rowNum);
-  sh.getRange(rowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-  SpreadsheetApp.getUi().alert("Receipt sent ✅");
-}
-
-/***********************
- * MANUAL SEND (Prompt)
- ***********************/
-function sendEnrollmentByPrompt() {
-  const ui = SpreadsheetApp.getUi();
-  const res = ui.prompt("Send Enrollment Pack", "Enter Email or StudentCode or UID:", ui.ButtonSet.OK_CANCEL);
-  if (res.getSelectedButton() !== ui.Button.OK) return;
-
-  const match = findStudentByLookup_(res.getResponseText().trim());
-  if (!match) return SpreadsheetApp.getUi().alert("Student not found.");
-
-  const { studentSheet, studentRowNum, studentRow, studentHeaders } = match;
-  ensureStudentHelperColumns_(studentSheet);
-
-  const idx = indexMap_(studentHeaders);
-  const key = getRowKey_(studentRow, idx, studentRowNum);
-
-  const paidNow = num_(studentRow[idx["Paid"]]);
-  if (paidNow <= 0) {
-    return SpreadsheetApp.getUi().alert("Paid is 0. Enrollment pack will NOT be sent until payment is recorded.");
-  }
-
-  sendEnrollmentPacketToStudent_(studentRow, idx, key, studentRowNum);
-
-  studentSheet.getRange(studentRowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-  updateStatus_(studentSheet, idx, studentRowNum, STATUS_ENROLLED);
-
-  studentSheet.getRange(studentRowNum, idx[COL_LAST_PAID] + 1).setValue(paidNow);
-
-  SpreadsheetApp.getUi().alert("Enrollment pack sent ✅");
-}
-
-function sendReceiptByPrompt() {
-  const ui = SpreadsheetApp.getUi();
-  const res = ui.prompt("Send Receipt", "Enter Email or StudentCode or UID:", ui.ButtonSet.OK_CANCEL);
-  if (res.getSelectedButton() !== ui.Button.OK) return;
-
-  const match = findStudentByLookup_(res.getResponseText().trim());
-  if (!match) return SpreadsheetApp.getUi().alert("Student not found.");
-
-  const { studentSheet, studentRowNum, studentRow, studentHeaders } = match;
-  ensureStudentHelperColumns_(studentSheet);
-
-  const idx = indexMap_(studentHeaders);
-  const key = getRowKey_(studentRow, idx, studentRowNum);
-
-  const paid = num_(studentRow[idx["Paid"]]);
-  const enrollSent = safe_(studentRow[idx[COL_ENROLL_SENT]]).toLowerCase() === "yes";
-
-  // ✅ If not enrolled yet and Paid > 0, send enrollment pack instead of standalone receipt
-  if (!enrollSent) {
-    if (paid <= 0) return SpreadsheetApp.getUi().alert("Paid is 0. No receipt/enrollment will be sent.");
-    sendEnrollmentPacketToStudent_(studentRow, idx, key, studentRowNum);
-
-    studentSheet.getRange(studentRowNum, idx[COL_ENROLL_SENT] + 1).setValue("YES");
-    updateStatus_(studentSheet, idx, studentRowNum, STATUS_ENROLLED);
-    studentSheet.getRange(studentRowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-    return SpreadsheetApp.getUi().alert("Enrollment pack sent ✅ (first payment detected)");
-  }
-
-  const lastPaid = num_(studentRow[idx[COL_LAST_PAID]]);
-  const delta = Math.max(0, paid - lastPaid);
-  if (delta <= 0) return SpreadsheetApp.getUi().alert("No new payment detected.");
-
-  sendReceiptToStudent_(studentRow, idx, key, delta, paid, studentRowNum);
-  studentSheet.getRange(studentRowNum, idx[COL_LAST_PAID] + 1).setValue(paid);
-
-  SpreadsheetApp.getUi().alert("Receipt sent ✅");
-}
-
-/***********************
- * SENDING: Enrollment + Receipt
- ***********************/
-function sendEnrollmentPacketToStudent_(row, idx, key, sourceRow) {
-  const paidNow = num_(row[idx["Paid"]]);
-
-  // ✅ HARD RULE: if Paid is 0, do NOT send any enrollment letter/pack
-  if (paidNow <= 0) {
-    throw new Error("Paid is 0. Enrollment letter/pack will not be sent until payment is recorded.");
-  }
-
-  const studentEmail = safe_(row[idx["Email"]]);
-  const name = safe_(row[idx["Name"]]);
-
-  const stamp = Utilities.formatDate(getContractStartDate_(row, idx), Session.getScriptTimeZone(), "yyyyMMdd");
-  const enrollmentRef = `ENR-${key}-${stamp}`;
-  const contractRef = `AGR-${key}-${stamp}`;
-
-  const enrollmentPdf = buildEnrollmentPdf_(row, idx, key);
-  const agreementPdf = buildAgreementPdf_(row, idx, key);
-
-  const attachments = [enrollmentPdf, agreementPdf];
-
-  // First receipt on enrollment ONLY if:
-  // - Paid > 0 AND
-  // - LastPaidRecorded == 0 (prevents duplicate receipt emails)
-  const lastPaidRecorded = num_(row[idx[COL_LAST_PAID]]);
-  let includedFirstReceipt = false;
-  let receiptNo = "";
-
-  if (paidNow > 0 && lastPaidRecorded <= 0) {
-    receiptNo = makeReceiptNo_(row, idx, key);
-    const nextDue = makeNextDueDateText_(row, idx, 30);
-    attachments.push(buildReceiptPdf_(row, idx, key, paidNow, paidNow, 0, receiptNo, nextDue));
-    includedFirstReceipt = true;
-  }
-
-  const subject = `Enrollment Confirmation - ${name}`;
-  const body =
-`Hello ${name},
-
-Welcome! Your enrollment is confirmed.
-
-Attached:
-1) Letter of Enrollment (PDF)
-2) Payment Agreement (PDF)${includedFirstReceipt ? "\n3) Receipt (PDF)" : ""}
-
-${RETENTION_NOTICE_TEXT}${emailSignature_()}`;
-
-  GmailApp.sendEmail(studentEmail, subject, body, {
-    name: FROM_NAME,
-    replyTo: REPLY_TO,
-    cc: ADMIN_CC || undefined,
-    attachments
-  });
-
-  logSend_("ENROLLMENT", row, idx, "", "", "", enrollmentRef, sourceRow, "SENT");
-  logSend_("AGREEMENT", row, idx, "", "", "", contractRef, sourceRow, "SENT");
-  if (includedFirstReceipt) logSend_("RECEIPT_FIRST_ENROLL", row, idx, 0, paidNow, paidNow, receiptNo, sourceRow, "SENT");
-}
-
-function sendReceiptToStudent_(row, idx, key, amountReceived, newTotalPaid, sourceRow) {
-  const studentEmail = safe_(row[idx["Email"]]);
-  const name = safe_(row[idx["Name"]]);
-
-  const paidAfter = Number(newTotalPaid);
-  const paidBefore = paidAfter - Number(amountReceived);
-
-  const receiptNo = makeReceiptNo_(row, idx, key);
-  const nextDue = makeNextDueDateText_(row, idx, 30);
-
-  const receiptPdf = buildReceiptPdf_(row, idx, key, amountReceived, paidAfter, paidBefore, receiptNo, nextDue);
-
-  const subject = `Receipt - Payment Received (${name})`;
-  const body =
-`Hello ${name},
-
-We have received your payment.
-
-Receipt No: ${receiptNo}
-Amount Received: GHS ${Number(amountReceived).toFixed(2)}
-
-Attached: Receipt (PDF)
-
-${RETENTION_NOTICE_TEXT}${emailSignature_()}`;
-
-  GmailApp.sendEmail(studentEmail, subject, body, {
-    name: FROM_NAME,
-    replyTo: REPLY_TO,
-    cc: ADMIN_CC || undefined,
-    attachments: [receiptPdf]
-  });
-
-  logSend_("RECEIPT", row, idx, paidBefore, amountReceived, paidAfter, receiptNo, sourceRow, "SENT");
-}
-
-/***********************
- * SAMPLE TEMPLATE (ONE ONLY TO ADMIN)
- ***********************/
-function buildSampleTemplatePdf_() {
-  const logo = getImageDataUri_(LOGO_URL);
-  const watermark = getImageDataUri_(WATERMARK_URL);
-  const genDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMMM d, yyyy");
-
-  const html = `
-  <html>
-    <head>
-      <meta charset="utf-8"/>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 30px; line-height: 1.5; }
-        .header { display:flex; align-items:center; justify-content:space-between; }
-        .logo { height: 55px; }
-        .title { font-size: 18px; font-weight: bold; }
-        .sub { font-size: 12px; color: #666; margin-top: 3px; }
-        .watermark { position: fixed; top: 25%; left: 10%; width: 80%; opacity: 0.08; z-index: -1; }
-        .section { margin-top: 16px; padding: 12px; border: 1px solid #ddd; border-radius: 10px; }
-        .section h3 { margin: 0 0 10px 0; font-size: 14px; }
-        .row { margin: 6px 0; }
-        .label { font-weight: bold; }
-      </style>
-    </head>
-    <body>
-      <img class="watermark" src="${watermark}" />
-      <div class="header">
-        <img class="logo" src="${logo}" />
-        <div style="text-align:right;">
-          <div class="title">SAMPLE DOCUMENT TEMPLATE</div>
-          <div class="sub">Admin template only • Generated: ${escape_(genDate)}</div>
-        </div>
-      </div>
-
-      <div class="section">
-        <h3>Student Details (Example)</h3>
-        <div class="row"><span class="label">Name:</span> John Example</div>
-        <div class="row"><span class="label">Email:</span> example@email.com</div>
-        <div class="row"><span class="label">Phone:</span> 0200000000</div>
-        <div class="row"><span class="label">Address:</span> Example Address</div>
-        <div class="row"><span class="label">Location:</span> Accra</div>
-        <div class="row"><span class="label">Emergency Contact:</span> 0200000001</div>
-      </div>
-
-      <div class="section">
-        <h3>Class & Contract (Example)</h3>
-        <div class="row"><span class="label">Level:</span> A1</div>
-        <div class="row"><span class="label">Class Name:</span> A1 January Batch</div>
-        <div class="row"><span class="label">Learning Mode:</span> Online</div>
-        <div class="row"><span class="label">Contract Start:</span> Jan 1, 2026</div>
-        <div class="row"><span class="label">Contract End:</span> Feb 1, 2026</div>
-        <div class="row"><span class="label">Daily Limit:</span> 30</div>
-        <div class="row"><span class="label">Student Code:</span> SAMPLE01</div>
-      </div>
-
-      ${signatureBlockHtml_()}
-      ${retentionNoticeHtml_()}
-      ${pdfFooterHtml_()}
-    </body>
-  </html>`;
-
-  return HtmlService.createHtmlOutput(html)
-    .getBlob()
-    .setName(`Sample_Document_Template_${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd")}.pdf`)
-    .getAs(MimeType.PDF);
-}
-
-function sendOneSampleTemplateToAdmin() {
-  const pdf = buildSampleTemplatePdf_();
-  GmailApp.sendEmail(
-    ORG_EMAIL,
-    "ADMIN - Sample Document Template",
-    `Hello Admin,\n\nAttached is the sample document TEMPLATE.\n(Not sent per student.)${emailSignature_()}`,
-    { name: FROM_NAME, replyTo: REPLY_TO, attachments: [pdf] }
-  );
-}
-
-/***********************
- * EMAIL QUEUE (LOG SPREADSHEET -> tab: email)
- ***********************/
-function handleEmailQueueEdit(e) {
-  try {
-    if (!e || !e.range) return;
-
-    const sh = e.range.getSheet();
-    if (sh.getParent().getId() !== LOG_SPREADSHEET_ID) return;
-    if (sh.getName() !== EMAIL_QUEUE_SHEET_NAME) return;
-
-    const rowNum = e.range.getRow();
-    if (rowNum === 1) return;
-
-    processEmailQueueRow_(rowNum);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function scanEmailQueue() {
-  const qSh = getEmailQueueSheet_();
-  const { headers, rows } = getSheetData_(qSh);
-  if (!headers.length) return;
-
-  const q = indexMap_(headers);
-  validateQueueColumns_(q);
-
-  for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2;
-    const status = safe_(rows[i][q[Q_STATUS]]).toUpperCase();
-    if (!status || status === "" || status === "PENDING") {
-      processEmailQueueRow_(rowNum);
-    }
-  }
-}
-
-function processEmailQueueRow_(queueRowNum) {
-  const qSh = getEmailQueueSheet_();
-  const lc = qSh.getLastColumn();
-
-  const headers = qSh.getRange(1, 1, 1, lc).getValues()[0].map(h => String(h).trim());
-  const q = indexMap_(headers);
-  validateQueueColumns_(q);
-
-  const row = qSh.getRange(queueRowNum, 1, 1, lc).getValues()[0];
-
-  const lookup = safe_(row[q[Q_LOOKUP]]);
-  const sendToOverride = safe_(row[q[Q_SENDTO]]);
-  const currentStatus = safe_(row[q[Q_STATUS]]).toUpperCase();
-  if (currentStatus === Q_SENT) return;
-
-  const sendEnroll = isYes_(row[q[Q_ENROLL]]);
-  const sendAgreement = isYes_(row[q[Q_AGREEMENT]]);
-  const sendReceipt = isYes_(row[q[Q_RECEIPT]]);
-  const sendSampleAdmin = isYes_(row[q[Q_SAMPLE_ADMIN]]);
-
-  if (!sendEnroll && !sendAgreement && !sendReceipt && !sendSampleAdmin) {
-    return setQueueStatus_(qSh, q, queueRowNum, Q_ERROR, "No document selected (set YES on at least one).");
-  }
-
-  // If ONLY SampleToAdmin = YES, no lookup needed
-  if (sendSampleAdmin && !sendEnroll && !sendAgreement && !sendReceipt) {
-    try {
-      sendOneSampleTemplateToAdmin();
-      return setQueueStatus_(qSh, q, queueRowNum, Q_SENT, "Sent Sample TEMPLATE to admin.");
-    } catch (err) {
-      return setQueueStatus_(qSh, q, queueRowNum, Q_ERROR, err.message || String(err));
-    }
-  }
-
-  // Student docs require lookup
-  if (!lookup) {
-    return setQueueStatus_(qSh, q, queueRowNum, Q_ERROR, "Lookup required for student documents (Email/StudentCode/UID).");
-  }
-
-  const match = findStudentByLookup_(lookup);
-  if (!match) {
-    return setQueueStatus_(qSh, q, queueRowNum, Q_ERROR, `Student not found for Lookup: ${lookup}`);
-  }
-
-  const { studentSheet, studentRowNum, studentRow, studentHeaders } = match;
-  ensureStudentHelperColumns_(studentSheet);
-
-  const sIdx = indexMap_(studentHeaders);
-  validateStudentsColumns_(sIdx);
-
-  const key = getRowKey_(studentRow, sIdx, studentRowNum);
-  const studentEmail = safe_(studentRow[sIdx["Email"]]);
-  const sendTo = sendToOverride || studentEmail;
-  const name = safe_(studentRow[sIdx["Name"]]);
-
-  const paidNow = num_(studentRow[sIdx["Paid"]]);
-
-  const attachments = [];
-  let skippedEnrollBecauseUnpaid = false;
-
-  try {
-    // ✅ Enrollment letter blocked if Paid == 0
-    if (sendEnroll) {
-      if (paidNow > 0) attachments.push(buildEnrollmentPdf_(studentRow, sIdx, key));
-      else skippedEnrollBecauseUnpaid = true;
-    }
-
-    if (sendAgreement) attachments.push(buildAgreementPdf_(studentRow, sIdx, key));
-
-    if (sendReceipt) {
-      const paid = paidNow;
-      const lastPaid = num_(studentRow[sIdx[COL_LAST_PAID]]);
-      let amountReceived = 0;
-
-      if (paid > lastPaid) amountReceived = paid - lastPaid;
-      else if (paid > 0 && lastPaid === 0) amountReceived = paid;
-
-      const nextDue = makeNextDueDateText_(studentRow, sIdx, 30);
-
-      // ✅ FIX: If no new payment, resend last receipt as COPY (from log)
-      if (amountReceived <= 0) {
-        const uid = safe_(studentRow[sIdx["UID"]]);
-        const sc = safe_(studentRow[sIdx["StudentCode"]]);
-        const em = safe_(studentRow[sIdx["Email"]]);
-
-        const lastReceipt = getLastReceiptFromLog_(uid, sc, em);
-        if (!lastReceipt) {
-          throw new Error("Receipt requested but no new payment detected AND no previous receipt found in log.");
-        }
-
-        const copyNo = (lastReceipt.receiptNo || makeReceiptNo_(studentRow, sIdx, key)) + "-COPY";
-
-        attachments.push(
-          buildReceiptPdf_(
-            studentRow,
-            sIdx,
-            key,
-            lastReceipt.amountReceived,
-            lastReceipt.paidAfter,
-            lastReceipt.paidBefore,
-            copyNo,
-            nextDue
-          )
-        );
-      } else {
-        const receiptNo = makeReceiptNo_(studentRow, sIdx, key);
-        attachments.push(
-          buildReceiptPdf_(
-            studentRow,
-            sIdx,
-            key,
-            amountReceived,
-            paid,
-            (paid - amountReceived),
-            receiptNo,
-            nextDue
-          )
-        );
-
-        // sync last paid only when it’s truly a new payment
-        studentSheet.getRange(studentRowNum, sIdx[COL_LAST_PAID] + 1).setValue(paid);
-      }
-    }
-
-    // Send student docs if any
-    if (attachments.length > 0) {
-      const subject = `Requested Documents - ${name}`;
-      const body =
-`Hello ${name},
-
-Please find the requested document(s) attached.
-
-${skippedEnrollBecauseUnpaid ? "NOTE: Enrollment letter was NOT attached because Paid is 0.\n\n" : ""}${RETENTION_NOTICE_TEXT}${emailSignature_()}`;
-
-      GmailApp.sendEmail(sendTo, subject, body, {
-        name: FROM_NAME,
-        replyTo: REPLY_TO,
-        attachments
-      });
-
-      // Mark EnrollmentSent only if enrollment PDF was actually attached
-      if (sendEnroll && !skippedEnrollBecauseUnpaid) {
-        studentSheet.getRange(studentRowNum, sIdx[COL_ENROLL_SENT] + 1).setValue("YES");
-        updateStatus_(studentSheet, sIdx, studentRowNum, STATUS_ENROLLED);
-
-        // if enrollment sent via queue, sync last paid
-        studentSheet.getRange(studentRowNum, sIdx[COL_LAST_PAID] + 1).setValue(paidNow);
-      }
-    } else if (skippedEnrollBecauseUnpaid) {
-      // If user asked for enrollment only but Paid is 0, treat as ERROR (nothing to send)
-      if (sendEnroll && !sendAgreement && !sendReceipt && !sendSampleAdmin) {
-        return setQueueStatus_(qSh, q, queueRowNum, Q_ERROR, "Enrollment requested but Paid is 0 (no email sent).");
-      }
-    }
-
-    // Sample to admin (always 1 template, not per student)
-    if (sendSampleAdmin) {
-      sendOneSampleTemplateToAdmin();
-    }
-
-    const msg = skippedEnrollBecauseUnpaid
-      ? "Processed successfully (Enrollment skipped because Paid is 0)."
-      : "Sent successfully.";
-    setQueueStatus_(qSh, q, queueRowNum, Q_SENT, msg);
-  } catch (err) {
-    setQueueStatus_(qSh, q, queueRowNum, Q_ERROR, err.message || String(err));
-  }
-}
-
-/***********************
- * NEW: Pull last receipt info from LOG tab (for receipt COPY)
- ***********************/
-function getLastReceiptFromLog_(uid, studentCode, email) {
-  const sh = getLogSheet_();
-  const lr = sh.getLastRow();
-  if (lr < 2) return null;
-
-  const values = sh.getRange(2, 1, lr - 1, sh.getLastColumn()).getValues();
-
-  // headers:
-  // Timestamp, Type, UID, StudentCode, Name, Email, PaidBefore, AmountReceived, PaidAfter, Balance, DocRef, SourceRow, Result
-  for (let i = values.length - 1; i >= 0; i--) {
-    const r = values[i];
-    const type = String(r[1] || "").toUpperCase();
-    const logUid = String(r[2] || "").trim();
-    const logSc = String(r[3] || "").trim();
-    const logEmail = String(r[5] || "").trim().toLowerCase();
-
-    const match =
-      (uid && logUid && logUid === uid) ||
-      (studentCode && logSc && logSc === studentCode) ||
-      (email && logEmail && logEmail === String(email).toLowerCase());
-
-    if (match && (type === "RECEIPT" || type === "RECEIPT_FIRST_ENROLL")) {
-      return {
-        paidBefore: Number(r[6] || 0),
-        amountReceived: Number(r[7] || 0),
-        paidAfter: Number(r[8] || 0),
-        receiptNo: String(r[10] || "").trim()
-      };
-    }
-  }
-  return null;
-}
-
-/***********************
- * PDF BUILDERS (Date uses ContractStart)
- ***********************/
-function buildEnrollmentPdf_(row, idx, key) {
-  const data = studentData_(row, idx);
-  const logo = getImageDataUri_(LOGO_URL);
-  const watermark = getImageDataUri_(WATERMARK_URL);
-
-  const docDate = getDocDateText_(row, idx); // ContractStart-based
-  const totalFee = Number(data.Paid || 0) + Number(data.Balance || 0);
-
-  const html = `
-  <html>
-    <head>
-      <meta charset="utf-8"/>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 30px; line-height: 1.55; }
-        .header { display:flex; align-items:center; justify-content:space-between; }
-        .logo { height: 60px; }
-        .title { font-size: 18px; font-weight: bold; margin-top: 10px; }
-        .meta { font-size: 12px; color:#666; margin-top: 2px; }
-        .watermark { position: fixed; top: 25%; left: 10%; width: 80%; opacity: 0.08; z-index: -1; }
-        .box { margin-top: 18px; padding: 14px; border: 1px solid #ddd; border-radius: 10px; }
-        .row { margin: 6px 0; }
-        .label { font-weight: bold; }
-      </style>
-    </head>
-    <body>
-      <img class="watermark" src="${watermark}" />
-      <div class="header">
-        <img class="logo" src="${logo}" />
-        <div style="text-align:right;">
-          <div class="title">LETTER OF ENROLLMENT</div>
-          <div class="meta">Reference: ${escape_(key)}</div>
-          <div class="meta">Date: ${escape_(docDate)}</div>
-        </div>
-      </div>
-
-      <p style="margin-top:18px;">
-        This letter serves as an official confirmation that <b>${escape_(data.Name)}</b>
-        has been successfully enrolled with <b>${escape_(ORG_NAME)}</b>.
-        The student is registered for <b>${escape_(data.Level)}</b> under the class
-        <b>${escape_(data.ClassName)}</b>, and the training will be delivered through
-        <b>${escape_(data.LearningMode)}</b>.
+  </style>
+</head>
+
+<body>
+<header>
+  <div class="container nav">
+    <div class="logo">Tillskin<span>&amp;Beauty</span></div>
+
+    <nav>
+      <ul>
+        <li><a href="#home">Home</a></li>
+        <li><a href="#offer">What we offer</a></li>
+        <li><a href="#shop">Products</a></li>
+        <li><a href="#services">Services</a></li>
+        <li><a href="#gallery">Gallery</a></li>
+        <li><a href="#contact">Visit &amp; Contact</a></li>
+      </ul>
+    </nav>
+
+    <div class="social-links">
+      <a href="https://www.instagram.com/tillskin_beauty/" target="_blank" rel="noopener">IG</a>
+      <span>•</span>
+      <a href="https://api.whatsapp.com/send/?phone=233248411913&utm_source=ig&utm_medium=social&utm_content=link_in_bio"
+         target="_blank" rel="noopener">WhatsApp</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section id="home">
+  <div class="container hero">
+    <div>
+      <div class="badge">Soft glam • Good skin • Everyday beauty</div>
+
+      <h1 class="hero-title">
+        Your glow starts at <span class="hero-highlight">Tillskin&amp;Beauty</span>
+      </h1>
+
+      <p class="hero-text">
+        Discover makeup and skincare that match your tone, style and lifestyle.
+        From everyday soft glam to full event looks, we help you feel confident.
       </p>
 
-      <p>
-        The student is reachable via phone number <b>${escape_(data.Phone)}</b> and email address
-        <b>${escape_(data.Email)}</b>. The recorded location is <b>${escape_(data.Location)}</b>
-        and the address is <b>${escape_(data.Address)}</b>.
-        For emergency purposes, the designated contact number is <b>${escape_(data.EmergencyContact)}</b>.
-        The student identification details are Student Code:
-        <b>${escape_(data.StudentCode)}</b> and UID: <b>${escape_(data.UID)}</b>.
-      </p>
-
-      <p>
-        The contract period for this enrollment runs from
-        <b>${escape_(data.ContractStart)}</b> to <b>${escape_(data.ContractEnd)}</b>.
-        The current Daily Limit is <b>${escape_(data.Daily_Limit)}</b>.
-      </p>
-
-      <p>
-        Payment record at the time of issuing this letter indicates:
-        Paid <b>${Number(data.Paid || 0).toFixed(2)}</b> and Balance
-        <b>${Number(data.Balance || 0).toFixed(2)}</b>.
-        Total fee based on current sheet values is <b>${totalFee.toFixed(2)}</b>.
-      </p>
-
-      <div class="box">
-        <div class="row"><span class="label">Student Name:</span> ${escape_(data.Name)}</div>
-        <div class="row"><span class="label">Address:</span> ${escape_(data.Address)}</div>
-        <div class="row"><span class="label">Location:</span> ${escape_(data.Location)}</div>
-        <div class="row"><span class="label">Level:</span> ${escape_(data.Level)}</div>
-        <div class="row"><span class="label">Class Name:</span> ${escape_(data.ClassName)}</div>
-        <div class="row"><span class="label">Learning Mode:</span> ${escape_(data.LearningMode)}</div>
-        <div class="row"><span class="label">Contract Period:</span> ${escape_(data.ContractStart)} to ${escape_(data.ContractEnd)}</div>
-        <div class="row"><span class="label">Paid:</span> ${Number(data.Paid || 0).toFixed(2)}</div>
-        <div class="row"><span class="label">Balance:</span> ${Number(data.Balance || 0).toFixed(2)}</div>
-        <div class="row"><span class="label">Enroll Date:</span> ${escape_(data.EnrollDate)}</div>
-        <div class="row"><span class="label">Status:</span> ${escape_(data.Status)}</div>
+      <div class="hero-buttons">
+        <a class="btn btn-primary" href="https://www.instagram.com/tillskin_beauty/" target="_blank">
+          Shop / View Looks
+        </a>
+        <a class="btn btn-outline"
+           href="https://api.whatsapp.com/send/?phone=233248411913&utm_source=ig&utm_medium=social&utm_content=link_in_bio"
+           target="_blank">
+          WhatsApp to Order / Book
+        </a>
       </div>
 
-      ${signatureBlockHtml_()}
-      ${retentionNoticeHtml_()}
-      ${pdfFooterHtml_()}
-    </body>
-  </html>`;
+      <p>Call: <a href="tel:+233248411913"><strong>0248 411 913</strong></a></p>
+    </div>
 
-  return HtmlService.createHtmlOutput(html).getBlob()
-    .setName(`Enrollment_Letter_${safeFile_(data.Name)}_${key}.pdf`)
-    .getAs(MimeType.PDF);
-}
+    <aside class="hero-card">
+      <img
+        src="images/hero.jpg"
+        alt="Tillskin &amp; Beauty glam look"
+        class="hero-image"
+      />
+    </aside>
+  </div>
+</section>
 
-function buildAgreementPdf_(row, idx, key) {
-  const data = studentData_(row, idx);
-  const logo = getImageDataUri_(LOGO_URL);
-  const watermark = getImageDataUri_(WATERMARK_URL);
+<section id="offer">
+  <div class="container">
+    <h2 class="section-title">What we offer</h2>
+    <p class="section-subtitle">Everything you need for beautiful skin and glam confidence.</p>
 
-  const contractDate = getDocDateText_(row, idx); // ContractStart-based
-  const totalFee = Number(data.Paid || 0) + Number(data.Balance || 0);
-  const firstInstallment = Math.round((totalFee * 0.5) * 100) / 100;
-
-  const html = `
-  <html>
-    <head>
-      <meta charset="utf-8"/>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 30px; line-height: 1.55; }
-        .header { display:flex; align-items:center; justify-content:space-between; }
-        .logo { height: 55px; }
-        .title { font-size: 18px; font-weight: bold; }
-        .meta { font-size: 12px; color:#666; margin-top: 2px; }
-        .watermark { position: fixed; top: 25%; left: 10%; width: 80%; opacity: 0.08; z-index: -1; }
-        .box { margin-top: 14px; padding: 12px; border: 1px solid #ddd; border-radius: 10px; }
-        h3 { margin: 16px 0 8px 0; font-size: 14px; }
-        .row { margin: 6px 0; }
-        .label { font-weight: bold; }
-        .small { font-size: 12px; color:#666; }
-        .sigline { margin-top: 26px; border-top: 1px solid #333; width: 100%; }
-        .indent { margin-left: 18px; }
-      </style>
-    </head>
-    <body>
-      <img class="watermark" src="${watermark}" />
-
-      <div class="header">
-        <img class="logo" src="${logo}" />
-        <div style="text-align:right;">
-          <div class="title">PAYMENT AGREEMENT</div>
-          <div class="meta">Contract Ref: ${escape_(key)}</div>
-          <div class="meta">Date: ${escape_(contractDate)}</div>
-        </div>
+    <div class="grid-3">
+      <div class="card">
+        <h3>Makeup Products</h3>
+        <p>Foundations, powders, concealers, blushes, highlights &amp; more.</p>
       </div>
 
-      <div class="box">
-        <div class="row"><span class="label">Student Name:</span> ${escape_(data.Name)}</div>
-        <div class="row"><span class="label">Email:</span> ${escape_(data.Email)}</div>
-        <div class="row"><span class="label">Phone:</span> ${escape_(data.Phone)}</div>
-        <div class="row"><span class="label">Address:</span> ${escape_(data.Address)}</div>
-        <div class="row"><span class="label">Location:</span> ${escape_(data.Location)}</div>
-        <div class="row"><span class="label">Emergency Contact (Phone):</span> ${escape_(data.EmergencyContact)}</div>
-        <div class="row"><span class="label">Student Code:</span> ${escape_(data.StudentCode)}</div>
-        <div class="row"><span class="label">UID:</span> ${escape_(data.UID)}</div>
-        <div class="row"><span class="label">Class Name:</span> ${escape_(data.ClassName)}</div>
-        <div class="row"><span class="label">Level:</span> ${escape_(data.Level)}</div>
-        <div class="row"><span class="label">Learning Mode:</span> ${escape_(data.LearningMode)}</div>
-        <div class="row"><span class="label">Contract Period:</span> ${escape_(data.ContractStart)} to ${escape_(data.ContractEnd)}</div>
+      <div class="card">
+        <h3>Skincare Essentials</h3>
+        <p>Cleansers, toners, serums &amp; hydrating essentials.</p>
       </div>
 
-      <h3>Agreement Statement</h3>
-      <div class="box">
-        This Payment Agreement is entered into on <b>${escape_(contractDate)}</b> for
-        <b>${escape_(data.ClassName)}</b> students of <b>${escape_(ORG_NAME)}</b>
-        and <b>Felix Asadu</b> ("Teacher").
-      </div>
-
-      <h3>Terms of Payment</h3>
-      <div class="box">
-        <div><b>1. Payment Amount:</b> The student agrees to pay the teacher a total of <b>GHS ${totalFee.toFixed(2)}</b> for the course.</div>
-        <div style="margin-top:8px;"><b>2. Payment Schedule:</b> The payment can be made in full or in two installments:</div>
-        <div class="indent">• First installment: <b>GHS ${firstInstallment.toFixed(2)}</b></div>
-        <div class="indent">• Second installment: the remaining balance for the second installment after one month of payment.</div>
-        <div style="margin-top:8px;"><b>3. Late Payments:</b> In the event of late payment, the school may revoke access to all learning platforms. No refund will be made.</div>
-        <div style="margin-top:8px;"><b>4. Refunds:</b> Once a deposit is made and a receipt is issued, no refunds will be provided.</div>
-      </div>
-
-      <h3>Cancellation and Refund Policy</h3>
-      <div class="box">
-        <div><b>1.</b> If the teacher cancels a lesson, it will be rescheduled.</div>
-      </div>
-
-      <h3>Miscellaneous Terms</h3>
-      <div class="box">
-        <div><b>1. Attendance:</b> The student agrees to attend lessons punctually.</div>
-        <div style="margin-top:8px;"><b>2. Communication:</b> Both parties agree to communicate changes promptly.</div>
-        <div style="margin-top:8px;"><b>3. Termination:</b> Either party may terminate this Agreement with written notice if the other party breaches any material term.</div>
-      </div>
-
-      ${retentionNoticeHtml_()}
-
-      <h3>Signatures</h3>
-      <div class="box">
-        <div style="margin-bottom:10px;">
-          <b>${escape_(data.Name)}</b><br/>
-          <span class="small">Student</span>
-          <div class="sigline"></div>
-          <div class="small">Date: ${escape_(contractDate)}</div>
-        </div>
-
-        <div style="margin-top:18px;">
-          ${signatureBlockHtml_()}
-          <div class="small">Date: ${escape_(contractDate)}</div>
-        </div>
-      </div>
-
-      ${pdfFooterHtml_()}
-    </body>
-  </html>`;
-
-  return HtmlService.createHtmlOutput(html)
-    .getBlob()
-    .setName(`Payment_Agreement_${safeFile_(data.Name)}_${key}.pdf`)
-    .getAs(MimeType.PDF);
-}
-
-function buildReceiptPdf_(row, idx, key, amountReceived, paidAfter, paidBefore, receiptNo, nextDueText) {
-  const data = studentData_(row, idx);
-  const logo = getImageDataUri_(LOGO_URL);
-  const watermark = getImageDataUri_(WATERMARK_URL);
-
-  const docDate = getDocDateText_(row, idx); // ContractStart-based
-  const totalFee = Number(data.Paid || 0) + Number(data.Balance || 0);
-
-  const html = `
-  <html>
-    <head>
-      <meta charset="utf-8"/>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 30px; line-height: 1.5; }
-        .header { display:flex; align-items:center; justify-content:space-between; }
-        .logo { height: 55px; }
-        .title { font-size: 18px; font-weight: bold; }
-        .meta { font-size: 12px; color:#666; margin-top: 2px; }
-        .watermark { position: fixed; top: 25%; left: 10%; width: 80%; opacity: 0.08; z-index: -1; }
-        .grid { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .card { padding: 12px; border: 1px solid #ddd; border-radius: 10px; }
-        .row { margin: 6px 0; }
-        .label { font-weight: bold; }
-        .big { font-size: 14px; font-weight: bold; }
-      </style>
-    </head>
-    <body>
-      <img class="watermark" src="${watermark}" />
-      <div class="header">
-        <img class="logo" src="${logo}" />
-        <div style="text-align:right;">
-          <div class="title">RECEIPT</div>
-          <div class="meta">Receipt No: ${escape_(receiptNo)}</div>
-          <div class="meta">Date: ${escape_(docDate)}</div>
-        </div>
-      </div>
-
-      <div class="grid">
-        <div class="card">
-          <div class="big">Billed To</div>
-          <div class="row"><span class="label">Name:</span> ${escape_(data.Name)}</div>
-          <div class="row"><span class="label">Email:</span> ${escape_(data.Email)}</div>
-          <div class="row"><span class="label">Phone:</span> ${escape_(data.Phone)}</div>
-          <div class="row"><span class="label">Address:</span> ${escape_(data.Address)}</div>
-          <div class="row"><span class="label">Location:</span> ${escape_(data.Location)}</div>
-          <div class="row"><span class="label">Student Code:</span> ${escape_(data.StudentCode)}</div>
-          <div class="row"><span class="label">Class:</span> ${escape_(data.ClassName)}</div>
-          <div class="row"><span class="label">Level:</span> ${escape_(data.Level)}</div>
-        </div>
-
-        <div class="card">
-          <div class="big">Payment Breakdown</div>
-          <div class="row"><span class="label">Total Fee:</span> GHS ${Number(totalFee).toFixed(2)}</div>
-          <div class="row"><span class="label">Paid Before:</span> GHS ${Number(paidBefore).toFixed(2)}</div>
-          <div class="row"><span class="label">Amount Received Now:</span> GHS ${Number(amountReceived).toFixed(2)}</div>
-          <div class="row"><span class="label">Total Paid (New):</span> GHS ${Number(paidAfter).toFixed(2)}</div>
-          <div class="row"><span class="label">Balance Remaining:</span> GHS ${Number(data.Balance || 0).toFixed(2)}</div>
-          <div class="row"><span class="label">Next Installment Due:</span> ${escape_(nextDueText)}</div>
-          <div class="row"><span class="label">Received By:</span> ${escape_(SIGNATORY_NAME)} (${escape_(SIGNATORY_TITLE)})</div>
-        </div>
-      </div>
-
-      ${signatureBlockHtml_()}
-      ${retentionNoticeHtml_()}
-      ${pdfFooterHtml_()}
-    </body>
-  </html>`;
-
-  return HtmlService.createHtmlOutput(html)
-    .getBlob()
-    .setName(`Receipt_${safeFile_(data.Name)}_${receiptNo}.pdf`)
-    .getAs(MimeType.PDF);
-}
-
-/***********************
- * PREVIEW PDFs (Drive)
- ***********************/
-function previewDocsToDrive() {
-  const headers = [
-    "Name","Phone","Location","Level","Paid","Balance","ContractStart","ContractEnd","StudentCode","Email",
-    "Emergency Contact (Phone Number)","Status","EnrollDate","ClassName","Daily_Limit","UID","LearningMode","Address",
-    COL_ENROLL_SENT, COL_LAST_PAID
-  ];
-
-  const row = [
-    "Preview Student",
-    "0201234567",
-    "Accra",
-    "A1",
-    500,
-    200,
-    new Date(), // ContractStart
-    new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000), // ContractEnd
-    "TEST01",
-    "preview@email.com",
-    "0209999999",
-    "Enrolled",
-    new Date(),
-    "A1 January Batch",
-    "30",
-    "UID-TEST-001",
-    "Online",
-    "Kwamisa street 580-8049",
-    "",
-    0
-  ];
-
-  const idx = indexMap_(headers);
-  const key = "PREVIEW-001";
-
-  const enrollment = buildEnrollmentPdf_(row, idx, key);
-  const agreement = buildAgreementPdf_(row, idx, key);
-  const receipt = buildReceiptPdf_(row, idx, key, 500, 500, 0, "RCT-PREVIEW-001", makeNextDueDateText_(row, idx, 30));
-  const sample = buildSampleTemplatePdf_();
-
-  const folder = getOrCreateFolder_("Falowen Docs Preview");
-  const f1 = folder.createFile(enrollment);
-  const f2 = folder.createFile(agreement);
-  const f3 = folder.createFile(receipt);
-  const f4 = folder.createFile(sample);
-
-  Logger.log("Enrollment Letter: " + f1.getUrl());
-  Logger.log("Agreement: " + f2.getUrl());
-  Logger.log("Receipt: " + f3.getUrl());
-  Logger.log("Sample Template: " + f4.getUrl());
-
-  SpreadsheetApp.getUi().alert(
-    "Preview PDFs created in Drive folder: 'Falowen Docs Preview'\n\n" +
-    "Go to View > Logs to copy the PDF links."
-  );
-}
-
-/***********************
- * DATA / SHEET ACCESS
- ***********************/
-function getStudentsSheet_() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) throw new Error(`Sheet tab not found: ${SHEET_NAME}`);
-  return sh;
-}
-
-function getEmailQueueSheet_() {
-  const ss = SpreadsheetApp.openById(LOG_SPREADSHEET_ID);
-  const sh = ss.getSheetByName(EMAIL_QUEUE_SHEET_NAME);
-  if (!sh) throw new Error(`Queue tab not found: ${EMAIL_QUEUE_SHEET_NAME}`);
-  return sh;
-}
-
-function getSheetData_(sh) {
-  const lr = sh.getLastRow();
-  const lc = sh.getLastColumn();
-  if (lr < 2) return { headers: [], rows: [] };
-  const headers = sh.getRange(1, 1, 1, lc).getValues()[0].map(h => String(h).trim());
-  const rows = sh.getRange(2, 1, lr - 1, lc).getValues();
-  return { headers, rows };
-}
-
-function indexMap_(headers) {
-  const map = {};
-  headers.forEach((h, i) => map[String(h).trim()] = i);
-  return map;
-}
-
-function validateStudentsColumns_(idx) {
-  const required = [
-    "Name","Phone","Location","Level","Paid","Balance","ContractStart","ContractEnd","StudentCode","Email",
-    "Emergency Contact (Phone Number)","Status","EnrollDate","ClassName","Daily_Limit","UID","LearningMode","Address",
-    COL_ENROLL_SENT, COL_LAST_PAID
-  ];
-  const missing = required.filter(c => idx[c] === undefined);
-  if (missing.length) throw new Error("Missing required columns in 'students' sheet: " + missing.join(", "));
-}
-
-function validateQueueColumns_(q) {
-  const required = [Q_LOOKUP, Q_SENDTO, Q_ENROLL, Q_AGREEMENT, Q_RECEIPT, Q_SAMPLE_ADMIN, Q_STATUS, Q_PROCESSED_AT, Q_RESULT];
-  const missing = required.filter(c => q[c] === undefined);
-  if (missing.length) throw new Error("Missing required columns in 'email' queue tab: " + missing.join(", "));
-}
-
-function setQueueStatus_(sh, q, rowNum, status, resultMsg) {
-  sh.getRange(rowNum, q[Q_STATUS] + 1).setValue(status);
-  sh.getRange(rowNum, q[Q_RESULT] + 1).setValue(resultMsg || "");
-  sh.getRange(rowNum, q[Q_PROCESSED_AT] + 1).setValue(new Date());
-}
-
-function ensureStudentHelperColumns_(sh) {
-  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
-  let lastCol = sh.getLastColumn();
-
-  const ensure = (colName, defaultValue) => {
-    const existingIndex = headers.indexOf(colName);
-    if (existingIndex === -1) {
-      lastCol += 1;
-      sh.getRange(1, lastCol).setValue(colName).setFontWeight("bold");
-      const lr = sh.getLastRow();
-      if (defaultValue !== undefined && lr >= 2) {
-        sh.getRange(2, lastCol, lr - 1, 1).setValue(defaultValue);
-      }
-      headers.push(colName);
-    }
-  };
-
-  ensure(COL_ENROLL_SENT, "");
-  ensure(COL_LAST_PAID, "0");
-}
-
-function updateStatus_(sh, idx, rowNum, newStatus) {
-  if (idx[COL_STATUS] === undefined) return;
-  const cell = sh.getRange(rowNum, idx[COL_STATUS] + 1);
-  const current = safe_(cell.getValue());
-  if (current.toLowerCase() === STATUS_PAID.toLowerCase()) return;
-  cell.setValue(newStatus);
-}
-
-function studentData_(row, idx) {
-  return {
-    Name: safe_(row[idx["Name"]]),
-    Phone: safe_(row[idx["Phone"]]),
-    Location: safe_(row[idx["Location"]]),
-    Address: safe_(row[idx["Address"]]),
-    Level: safe_(row[idx["Level"]]),
-    Paid: num_(row[idx["Paid"]]),
-    Balance: num_(row[idx["Balance"]]),
-    ContractStart: displayDate_(row[idx["ContractStart"]]),
-    ContractEnd: displayDate_(row[idx["ContractEnd"]]),
-    StudentCode: safe_(row[idx["StudentCode"]]),
-    Email: safe_(row[idx["Email"]]),
-    EmergencyContact: safe_(row[idx["Emergency Contact (Phone Number)"]]),
-    Status: safe_(row[idx["Status"]]),
-    EnrollDate: displayDate_(row[idx["EnrollDate"]]),
-    ClassName: safe_(row[idx["ClassName"]]),
-    Daily_Limit: safe_(row[idx["Daily_Limit"]]),
-    UID: safe_(row[idx["UID"]]),
-    LearningMode: safe_(row[idx["LearningMode"]]),
-  };
-}
-
-function getRowKey_(row, idx, rowNumber) {
-  const uid = idx["UID"] !== undefined ? safe_(row[idx["UID"]]) : "";
-  const sc = idx["StudentCode"] !== undefined ? safe_(row[idx["StudentCode"]]) : "";
-  return uid || sc || `ROW${rowNumber}`;
-}
-
-function makeReceiptNo_(row, idx, key) {
-  const uid = (safe_(row[idx["UID"]]) || safe_(row[idx["StudentCode"]]) || key).replace(/\s+/g, "");
-  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd-HHmm");
-  return `RCT-${uid}-${stamp}`;
-}
-
-/***********************
- * DATE RULE: document "Date" = ContractStart
- ***********************/
-function getContractStartDate_(row, idx) {
-  const cs = idx["ContractStart"] !== undefined ? row[idx["ContractStart"]] : null;
-  const ed = idx["EnrollDate"] !== undefined ? row[idx["EnrollDate"]] : null;
-  return toDate_(cs) || toDate_(ed) || new Date();
-}
-
-function getDocDateText_(row, idx) {
-  const d = getContractStartDate_(row, idx);
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), "MMMM d, yyyy");
-}
-
-function makeNextDueDateText_(row, idx, days) {
-  const base = getContractStartDate_(row, idx);
-  const next = new Date(base.getTime() + (days * 24 * 60 * 60 * 1000));
-  return Utilities.formatDate(next, Session.getScriptTimeZone(), "MMMM d, yyyy");
-}
-
-/***********************
- * LOOKUP (Email / StudentCode / UID)
- ***********************/
-function findStudentByLookup_(lookup) {
-  const studentSheet = getStudentsSheet_();
-  ensureStudentHelperColumns_(studentSheet);
-
-  const lastRow = studentSheet.getLastRow();
-  const lastCol = studentSheet.getLastColumn();
-  if (lastRow < 2) return null;
-
-  const headers = studentSheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
-  const idx = indexMap_(headers);
-  validateStudentsColumns_(idx);
-
-  const needle = String(lookup).trim().toLowerCase();
-  const rows = studentSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
-
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const email = safe_(r[idx["Email"]]).toLowerCase();
-    const sc = safe_(r[idx["StudentCode"]]).toLowerCase();
-    const uid = safe_(r[idx["UID"]]).toLowerCase();
-
-    if (email === needle || sc === needle || uid === needle) {
-      return {
-        studentSheet,
-        studentRowNum: i + 2,
-        studentRow: r,
-        studentHeaders: headers
-      };
-    }
-  }
-  return null;
-}
-
-/***********************
- * LOGGING -> LOG SHEET (tab: data)
- ***********************/
-function getLogSheet_() {
-  const ss = SpreadsheetApp.openById(LOG_SPREADSHEET_ID);
-  const sh = ss.getSheetByName(LOG_SHEET_NAME);
-  if (!sh) throw new Error(`Log tab not found: ${LOG_SHEET_NAME}`);
-
-  const a1 = safe_(sh.getRange(1, 1).getValue());
-  if (!a1) {
-    sh.getRange(1, 1, 1, 13).setValues([[
-      "Timestamp", "Type", "UID", "StudentCode", "Name", "Email",
-      "PaidBefore", "AmountReceived", "PaidAfter", "Balance",
-      "DocRef", "SourceRow", "Result"
-    ]]).setFontWeight("bold");
-  }
-  return sh;
-}
-
-function logSend_(type, row, idx, paidBefore, amountReceived, paidAfter, docRef, sourceRow, result) {
-  const sh = getLogSheet_();
-  const uid = safe_(row[idx["UID"]]);
-  const sc = safe_(row[idx["StudentCode"]]);
-  const name = safe_(row[idx["Name"]]);
-  const email = safe_(row[idx["Email"]]);
-  const balance = num_(row[idx["Balance"]]);
-
-  sh.appendRow([
-    new Date(),
-    type,
-    uid,
-    sc,
-    name,
-    email,
-    paidBefore === "" ? "" : Number(paidBefore || 0).toFixed(2),
-    amountReceived === "" ? "" : Number(amountReceived || 0).toFixed(2),
-    paidAfter === "" ? "" : Number(paidAfter || 0).toFixed(2),
-    Number(balance || 0).toFixed(2),
-    docRef || "",
-    sourceRow || "",
-    result || ""
-  ]);
-}
-
-/***********************
- * HTML blocks (Signature, Footer, Notice) + Email signature
- ***********************/
-function signatureBlockHtml_() {
-  return `
-    <div style="margin-top:26px;">
-      <div style="font-size:12px; color:#444;">Authorized By</div>
-
-      <div style="
-        margin-top:10px;
-        font-size:28px;
-        font-family: 'Brush Script MT', 'Lucida Handwriting', 'Segoe Script', cursive;
-        color:#1a1a1a;
-        line-height:1;
-      ">
-        ${escape_(SIGNATORY_NAME)}
-      </div>
-
-      <div style="margin-top:6px; font-size:12px; color:#666;">
-        ${escape_(SIGNATORY_TITLE)} • ${escape_(ORG_NAME)}
-      </div>
-
-      <div style="margin-top:10px; font-size:11px; color:#666;">
-        Digitally signed document (no physical signature required).
+      <div class="card">
+        <h3>Professional Glam</h3>
+        <p>Soft glam, full glam &amp; bridal makeup for all occasions.</p>
       </div>
     </div>
-  `;
-}
+  </div>
+</section>
 
-function emailSignature_() {
-  return `
+<section id="shop">
+  <div class="container">
+    <h2 class="section-title">Product Highlights</h2>
+    <p class="section-subtitle">See current stock &amp; arrivals on Instagram.</p>
 
-${PLAYSTORE_TEXT}
+    <div class="grid-3">
+      <div class="card">
+        <h3>Soft Matte Foundation</h3>
+        <p>Lightweight, smooth &amp; long-lasting matte coverage.</p>
+      </div>
 
-Regards,
-${ORG_NAME}
-Phone/WhatsApp: ${ORG_PHONE}
-Email: ${ORG_EMAIL}
-Websites: ${ORG_WEBSITE_1}, ${ORG_WEBSITE_2}
-Digital Address: ${ORG_DIGITAL_ADDRESS}
-Business Reg No: ${ORG_BUSINESS_REG_NO}`;
-}
+      <div class="card">
+        <h3>HydraGlow Serum</h3>
+        <p>Perfect skin prep before makeup or daily skincare.</p>
+      </div>
 
-function pdfFooterHtml_() {
-  return `
-    <div style="margin-top:18px; font-size:11px; color:#666; border-top:1px solid #ddd; padding-top:10px;">
-      <b>${escape_(ORG_NAME)}</b><br/>
-      Phone/WhatsApp: ${escape_(ORG_PHONE)} • Email: ${escape_(ORG_EMAIL)}<br/>
-      Websites: ${escape_(ORG_WEBSITE_1)} • ${escape_(ORG_WEBSITE_2)}<br/>
-      Digital Address: ${escape_(ORG_DIGITAL_ADDRESS)} • Business Reg No: ${escape_(ORG_BUSINESS_REG_NO)}
+      <div class="card">
+        <h3>Velvet Lip Shades</h3>
+        <p>Comfortable, long-wear lip colours in bold &amp; nude tones.</p>
+      </div>
     </div>
-  `;
-}
 
-function retentionNoticeHtml_() {
-  return `
-    <div style="margin-top:14px; font-size:12px; padding:10px; border:1px solid #f0c36d; background:#fff7e6; border-radius:10px;">
-      <b>IMPORTANT NOTICE:</b> Please save this document in a safe place.<br/>
-      After your contract ends, student records and related data may be removed from our system.
+    <div style="margin-top:1rem;">
+      <a class="btn btn-outline" href="https://www.instagram.com/tillskin_beauty/" target="_blank">
+        Browse on Instagram
+      </a>
     </div>
-  `;
-}
+  </div>
+</section>
 
-/***********************
- * Generic helpers
- ***********************/
-function isYes_(v) {
-  const t = safe_(v).toLowerCase();
-  return ["yes", "y", "true", "1"].includes(t);
-}
+<section id="services">
+  <div class="container">
+    <h2 class="section-title">Makeup &amp; Glam Services</h2>
 
-function toDate_(v) {
-  if (v instanceof Date) return v;
-  const t = safe_(v);
-  if (!t) return null;
-  const d = new Date(t);
-  return String(d) === "Invalid Date" ? null : d;
-}
+    <div class="grid-3">
+      <div class="card">
+        <h3>Bridal Glam</h3>
+        <p>Elegant, timeless &amp; photo-ready looks for brides.</p>
+      </div>
 
-function displayDate_(v) {
-  const d = toDate_(v);
-  if (!d) return safe_(v);
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), "MMM d, yyyy");
-}
+      <div class="card">
+        <h3>Event Glam</h3>
+        <p>Birthdays, shoots, parties &amp; special occasions.</p>
+      </div>
 
-function getImageDataUri_(url) {
-  const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  const blob = resp.getBlob();
-  const contentType = blob.getContentType() || "image/png";
-  const b64 = Utilities.base64Encode(blob.getBytes());
-  return `data:${contentType};base64,${b64}`;
-}
+      <div class="card">
+        <h3>Soft Everyday Glam</h3>
+        <p>Clean, natural finishes for work &amp; casual outings.</p>
+      </div>
+    </div>
 
-function safe_(v) {
-  if (v === null || v === undefined) return "";
-  return String(v).trim();
-}
+    <div style="margin-top:1rem;">
+      <a class="btn btn-primary"
+         href="https://api.whatsapp.com/send/?phone=233248411913&utm_source=ig&utm_medium=social&utm_content=link_in_bio"
+         target="_blank">
+        Book on WhatsApp
+      </a>
+    </div>
+  </div>
+</section>
 
-function num_(v) {
-  const n = Number(String(v).replace(/,/g, "").trim());
-  return isNaN(n) ? 0 : n;
-}
+<section id="gallery">
+  <div class="container">
+    <h2 class="section-title">Gallery</h2>
+    <p class="section-subtitle">A glimpse of our looks. Replace these with your real shots as you like.</p>
 
-function escape_(s) {
-  return safe_(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+    <div class="gallery-grid">
+      <div class="gallery-item">
+        <img src="images/gallery1.jpg" alt="Soft glam makeup look" />
+      </div>
+      <div class="gallery-item">
+        <img src="images/gallery2.jpg" alt="Bridal makeup look" />
+      </div>
+      <div class="gallery-item">
+        <img src="images/gallery3.jpg" alt="Before and after makeup transformation" />
+      </div>
+    </div>
+  </div>
+</section>
 
-function safeFile_(s) {
-  return safe_(s).replace(/[^\w\-]+/g, "_").slice(0, 40);
-}
+<section id="contact">
+  <div class="container contact-grid">
+    <div>
+      <h2 class="section-title">Visit &amp; Contact</h2>
 
-function getOrCreateFolder_(name) {
-  const it = DriveApp.getFoldersByName(name);
-  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
-}
+      <p><strong>Phone:</strong> <a href="tel:+233248411913">0248 411 913</a></p>
+
+      <p><strong>WhatsApp:</strong>
+        <a href="https://api.whatsapp.com/send/?phone=233248411913&utm_source=ig&utm_medium=social&utm_content=link_in_bio"
+           target="_blank">
+          Chat Now
+        </a>
+      </p>
+
+      <p><strong>Instagram:</strong>
+        <a href="https://www.instagram.com/tillskin_beauty/" target="_blank">
+          @tillskin_beauty
+        </a>
+      </p>
+
+      <p><strong>Location:</strong>
+        <a href="https://maps.app.goo.gl/scm3onuN5AAkQ5Vn8" target="_blank">
+          Open on Google Maps
+        </a>
+      </p>
+
+      <p>Opening Hours: Mon–Sat (update with your exact times)</p>
+    </div>
+
+    <div class="card">
+      <h3>Booking Tip</h3>
+      <p>
+        When booking, send your event date, time and a reference photo of the
+        look you want. You can also send a selfie in natural light to help with
+        shade matching.
+      </p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  © <span id="year"></span> Tillskin&amp;Beauty — All Rights Reserved
+</footer>
+
+<script>
+  document.getElementById("year").textContent = new Date().getFullYear();
+</script>
+
+</body>
+</html>
